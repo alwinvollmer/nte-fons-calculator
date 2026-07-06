@@ -7,14 +7,16 @@ window = now -> (patch_start + PATCH_WEEKS weeks).
 """
 import argparse
 import math
-import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ---------------------------------------------------------------------------
 # CONFIG  — edit here when the game changes.
-# All resets fire at 05:00 local in summer time (DST) and 04:00 in winter
-# (a fixed 03:00 UTC instant); reset_hour_for() picks the hour per date.
+# Every reset is a FIXED 03:00 UTC instant (= 05:00 CEST summer / 04:00 CET winter).
+# Working in UTC means no DST bookkeeping; display is converted to local time.
 # ---------------------------------------------------------------------------
+UTC = timezone.utc
+RESET_HOUR_UTC = 3                    # all resets fire at 03:00 UTC
+
 PATCH_WEEKS   = 6                     # 1 patch = 6 weeks
 
 CAFE_PER_HOUR = 2400                  # Cafe by Origen, continuous, NO cap (edit to your rate)
@@ -32,20 +34,15 @@ WEEK  = timedelta(days=7)
 FORT  = timedelta(days=14)
 
 
-def reset_hour_for(dt):
-    """Local reset hour for a date: 5 in summer time, 4 in winter."""
-    ts = time.mktime(dt.replace(hour=12, minute=0, second=0, microsecond=0).timetuple())
-    return 5 if time.localtime(ts).tm_isdst > 0 else 4
-
-
-def _anchor(y, m, d):
-    return datetime(y, m, d, reset_hour_for(datetime(y, m, d, 12)))
+def reset_instant(y, m, d):
+    """The reset instant on a given date: 03:00 UTC (tz-aware)."""
+    return datetime(y, m, d, RESET_HOUR_UTC, tzinfo=UTC)
 
 
 # Reset-cycle anchors (any real reset instant; script rolls them forward).
-WEEKLY_ANCHOR = _anchor(2026, 7, 6)    # a Monday
-PINK_ANCHOR   = _anchor(2026, 7, 6)    # next Pink Paws = upcoming Monday
-RAILS_ANCHOR  = _anchor(2026, 7, 18)   # from in-game "12d 21h 34m" (seen 2026-07-05)
+WEEKLY_ANCHOR = reset_instant(2026, 7, 6)    # a Monday
+PINK_ANCHOR   = reset_instant(2026, 7, 6)    # next Pink Paws = upcoming Monday
+RAILS_ANCHOR  = reset_instant(2026, 7, 18)   # from in-game "12d 21h 34m" (seen 2026-07-05)
 # ---------------------------------------------------------------------------
 
 
@@ -59,10 +56,10 @@ def count_periodic(now, end, anchor, period):
 
 
 def count_monthly(now, end, day=1):
-    """# of `day`-of-month at the reset hour with now < event <= end."""
+    """# of `day`-of-month at the reset instant with now < event <= end."""
     n, y, m = 0, now.year, now.month
     while True:
-        dt = datetime(y, m, day, reset_hour_for(datetime(y, m, day, 12)))
+        dt = reset_instant(y, m, day)
         if dt > end:
             break
         if dt > now:
@@ -84,11 +81,15 @@ def main():
     ap.add_argument("--battle-pass", action="store_true", help="add Battle Pass (700k/patch)")
     args = ap.parse_args()
 
-    now = datetime.fromisoformat(args.now) if args.now else datetime.now().replace(microsecond=0)
+    if args.now:
+        now = datetime.fromisoformat(args.now)
+        if now.tzinfo is None:            # treat a naive --now as UTC
+            now = now.replace(tzinfo=UTC)
+    else:
+        now = datetime.now(UTC).replace(microsecond=0)
     ps = datetime.fromisoformat(args.patch_start)
-    patch_start = ps.replace(hour=reset_hour_for(ps), minute=0, second=0, microsecond=0)
-    end = patch_start + timedelta(weeks=args.patch_weeks)
-    end = end.replace(hour=reset_hour_for(end))   # correct hour if the patch crosses a DST change
+    patch_start = reset_instant(ps.year, ps.month, ps.day)
+    end = patch_start + timedelta(weeks=args.patch_weeks)   # fixed UTC instant, no DST fixup needed
 
     rows = []  # (name, count, unit, subtotal)
 
@@ -128,10 +129,11 @@ def main():
     total = args.fons + earned
     span_days = (end - now).total_seconds() / 86400
 
+    lt = lambda d: d.astimezone()   # UTC instant -> local wall clock for display
     print(f"NTE Fons projection")
-    print(f"  now            : {now:%Y-%m-%d %H:%M}")
-    print(f"  next patch day : {patch_start:%Y-%m-%d %H:%M}")
-    print(f"  end of patch   : {end:%Y-%m-%d %H:%M}  (+{args.patch_weeks} wk)")
+    print(f"  now            : {lt(now):%Y-%m-%d %H:%M %Z}")
+    print(f"  next patch day : {lt(patch_start):%Y-%m-%d %H:%M %Z}")
+    print(f"  end of patch   : {lt(end):%Y-%m-%d %H:%M %Z}  (+{args.patch_weeks} wk)")
     print(f"  window         : {span_days:.1f} days")
     print()
     print(f"  {'source':<26}{'cycles':>8}{'per':>12}{'fons':>16}")

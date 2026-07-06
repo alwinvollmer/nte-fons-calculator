@@ -42,6 +42,10 @@
   .total{font-size:22px;color:var(--good);font-weight:700}
   .tlabel{color:var(--muted);font-size:13px}
   .note{color:var(--muted);font-size:12px;margin-top:14px;line-height:1.6}
+  .alert{background:color-mix(in srgb, var(--accent2) 12%, transparent);
+         border:1px solid var(--accent2);border-radius:10px;padding:11px 14px;
+         font-size:13px;line-height:1.5;margin-top:2px}
+  .alert b{color:var(--accent2)}
   code{background:var(--bg);padding:1px 5px;border-radius:4px}
   .btn{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);
        color:var(--txt);font:inherit;cursor:pointer;white-space:nowrap}
@@ -122,11 +126,12 @@
       </tfoot>
     </table>
     <div class="note">
-      Resets fire at 05:00 local in summer time, 04:00 in winter (auto per date). Anchors set each cycle's phase and roll forward automatically.
+      Resets fire at a fixed 03:00 UTC (05:00 CEST summer / 04:00 CET winter), shown in your local time automatically. Anchors set each cycle's phase and roll forward automatically.
       Patch day is derived from the patch anchor + patch length. Use <code>⚙ Settings</code> to change payouts and anchors — saved in this browser.
       Daily Missions payout is an estimate.
     </div>
   </div>
+  <div class="alert">ℹ️ This projection assumes every Fons source is <b>already collected up to now</b> — it only counts resets that fire between now and the window end.</div>
 </div>
 
 <!-- Settings modal -->
@@ -147,7 +152,7 @@
       <div><label>Monthly Pass — per day</label><input id="c_monthlyPass" type="number"></div>
       <div><label>Battle Pass — per patch</label><input id="c_battlePass" type="number"></div>
 
-      <div class="sect">Timing — resets auto 05:00 summer / 04:00 winter</div>
+      <div class="sect">Timing — resets fixed 03:00 UTC (05:00 CEST / 04:00 CET)</div>
       <div><label>Patch anchor (a patch-start Wednesday)</label><input id="c_patchAnchor" type="date"></div>
       <div><label>Weekly / Daily anchor (a Monday)</label><input id="c_weeklyAnchor" type="date"></div>
       <div><label>Pink Paws anchor</label><input id="c_pinkAnchor" type="date"></div>
@@ -163,8 +168,7 @@
 
 <script>
 // ---- DEFAULT CONFIG (mirror of calc_fons.py) ----
-// All resets fire at 05:00 local in summer time (DST) and 04:00 in winter
-// (a fixed 03:00 UTC instant); resetHourFor() picks the hour per date.
+// All resets fire at a fixed 03:00 UTC instant (= 05:00 CEST summer / 04:00 CET winter).
 const DEFAULTS = {
   dailyMissions: 20000,     // per daily reset (estimate)
   cityStamina: 700000,      // weekly (Monday)
@@ -190,18 +194,12 @@ function loadCfg(){
 }
 let cfg = loadCfg();
 
-const D = (y,m,d,h)=>new Date(y,m-1,d,h,0,0,0);   // local time
 const DAY = 86400000, WEEK = 7*DAY, FORT = 14*DAY;
-// DST detection via the system timezone: summer offset is smaller than winter.
-function isDST(dt){
-  const y = dt.getFullYear();
-  const std = Math.max(new Date(y,0,1).getTimezoneOffset(), new Date(y,6,1).getTimezoneOffset());
-  return dt.getTimezoneOffset() < std;
-}
-// reset hour local: 5 in summer time, 4 in winter (fixed 03:00 UTC instant)
-const resetHourFor = dt => isDST(dt) ? 5 : 4;
-// build an anchor instant from "YYYY-MM-DD" at that date's reset hour
-const anchorDate = iso => { const [y,m,d]=iso.split('-').map(Number); return D(y,m,d, resetHourFor(D(y,m,d,12))); };
+// Every reset is a FIXED 03:00 UTC instant (= 05:00 CEST in summer, 04:00 CET in
+// winter). Anchoring in UTC lets the browser handle all local/DST conversion.
+const resetInstant = (y,m,d)=>new Date(Date.UTC(y, m-1, d, 3, 0, 0));
+// build a reset instant from a "YYYY-MM-DD" anchor date
+const anchorDate = iso => { const [y,m,d]=iso.split('-').map(Number); return resetInstant(y,m,d); };
 // ---------------------------------------------------------------------
 
 function countPeriodic(now, end, anchor, period){
@@ -213,7 +211,7 @@ function countPeriodic(now, end, anchor, period){
 function countMonthly(now, end){
   let n=0, y=now.getFullYear(), m=now.getMonth()+1;
   while(true){
-    const dt = D(y,m,1, resetHourFor(D(y,m,1,12)));
+    const dt = resetInstant(y,m,1);
     if (dt > end) break;
     if (dt > now) n++;
     if (++m>12){ m=1; y++; }
@@ -230,7 +228,7 @@ function windowParts(){
   const nowv = document.getElementById('now').value;
   const now = nowv ? new Date(nowv) : new Date();
   const [py,pm,pd] = pv.split('-').map(Number);
-  const patchStart = D(py,pm,pd, resetHourFor(D(py,pm,pd,12)));
+  const patchStart = resetInstant(py,pm,pd);
   const fullEnd = new Date(patchStart.getTime() + weeks*WEEK);
   return {now, weeks, patchStart, fullEnd};
 }
