@@ -8,6 +8,8 @@ Two front-ends, one shared model:
 - **`nte-fons.html`** — standalone, offline, theme-aware GUI. Just open it in a browser.
 - **`calc_fons.py`** — command-line version (Python 3, standard library only).
 
+**▶ Live demo: <https://alwinvollmer.github.io/nte-fons-calculator/>** — runs entirely in your browser.
+
 ## Features
 
 - Counts every recurring reset (daily / weekly / biweekly / monthly / per-patch)
