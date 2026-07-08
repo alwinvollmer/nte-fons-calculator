@@ -30,7 +30,32 @@
   .checks{display:flex;gap:20px;flex-wrap:wrap;margin-top:2px}
   .chk{display:flex;align-items:center;gap:7px;color:var(--txt);font-size:13px;margin:0}
   .chk input{width:auto}
-  input[type=range]{padding:0;border:none;background:none;height:auto;accent-color:var(--accent);cursor:pointer}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;
+       padding:0;border:none;background:transparent;cursor:pointer;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;
+       background:linear-gradient(var(--accent),var(--accent)) 0/var(--fill,100%) 100% no-repeat, var(--line)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+       width:16px;height:16px;margin-top:-5px;border-radius:50%;background:var(--accent);
+       border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
+  input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:var(--line)}
+  input[type=range]::-moz-range-progress{height:6px;border-radius:3px;background:var(--accent)}
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border:2px solid var(--panel);
+       border-radius:50%;background:var(--accent)}
+  .sliderwrap{position:relative}
+  .sliderwrap input[type=range]{position:relative;z-index:2}
+  .marks{position:relative;height:38px;margin-top:2px}
+  .mark{position:absolute;top:0;height:100%;cursor:pointer}
+  .mark .tick{position:absolute;top:0;left:0;transform:translateX(-50%);
+              width:2px;height:9px;background:var(--muted);border-radius:1px}
+  .mark .lbl{position:absolute;left:0;top:13px;text-align:center;font-size:11px;
+             line-height:1.35;color:var(--muted);white-space:nowrap;user-select:none}
+  .mark .lbl b{color:inherit;font-weight:600}
+  .mark:hover .tick{background:var(--accent)}
+  .mark:hover .lbl{color:var(--accent)}
+  .mark.m2 .tick{background:var(--accent2)}
+  .mark.m2 .lbl{color:var(--accent2)}
+  .mark.m2:hover .tick{background:var(--accent)}
+  .mark.m2:hover .lbl{color:var(--accent)}
   .endval{color:var(--txt);font-size:13px;margin-top:10px}
   .endval b{color:var(--accent)}
   .meta{color:var(--muted);font-size:13px;margin-bottom:12px}
@@ -109,8 +134,11 @@
   </div>
 
   <div class="card">
-    <label for="endSlider">Project up to — drag the window end (daily steps, now → end of next patch)</label>
-    <input id="endSlider" type="range" min="0" max="1" step="1" value="1">
+    <label for="endSlider">Project up to — drag the window end (daily steps, now → end of next patch). Click a marker to snap.</label>
+    <div class="sliderwrap">
+      <input id="endSlider" type="range" min="0" max="1" step="1" value="1">
+      <div id="marks" class="marks"></div>
+    </div>
     <div id="endval" class="endval"></div>
   </div>
 
@@ -239,13 +267,51 @@ function effectiveEnd(w){
   const v = Math.min(parseInt(document.getElementById('endSlider').value||'0',10), md);
   return v >= md ? w.fullEnd : new Date(w.now.getTime() + v*DAY);
 }
-function syncSlider(resetToMax){
+function syncSlider(resetToDefault){
   const w = windowParts(); if(!w) return;
   const md = maxDaysOf(w);
   const s = document.getElementById('endSlider');
   s.max = md;
-  if(resetToMax || parseInt(s.value||'0',10) > md) s.value = md;
+  const pDays = Math.max(0, Math.min(md, Math.round((w.patchStart - w.now)/DAY)));
+  // default: end of current patch — unless ≤1 week left there, then jump to end of next patch
+  const def = pDays <= 7 ? md : pDays;
+  if(resetToDefault || parseInt(s.value||'0',10) > md) s.value = def;
+  renderMarks(w, md);
 }
+function updateFill(){
+  const s = document.getElementById('endSlider');
+  const mx = parseInt(s.max||'1',10) || 1;
+  s.style.setProperty('--fill', (parseInt(s.value||'0',10)/mx*100)+'%');
+}
+// two major marks on the slider: current patch end (patchStart) and next patch end (fullEnd=max)
+function renderMarks(w, md){
+  const el = document.getElementById('marks');
+  if(!el) return;
+  if(md<=0){ el.innerHTML=''; return; }
+  const T = 16;  // range thumb width px; tick math insets by T/2 so ticks line up with the thumb center
+  const eopt={month:'2-digit',day:'2-digit'};
+  const pDays = Math.max(0, Math.min(md, Math.round((w.patchStart - w.now)/DAY)));
+  const marks = [
+    {cls:'m1', days:pDays, label:'Current patch end', date:w.patchStart},
+    {cls:'m2', days:md,    label:'Next patch end',    date:w.fullEnd},
+  ];
+  el.innerHTML = marks.map(m=>{
+    const frac = m.days/md;                                   // 0..1 along the thumb travel
+    const left = `calc(${T/2}px + ${frac} * (100% - ${T}px))`; // matches native thumb-center position
+    const lblShift = frac>=0.85 ? -100 : frac<=0.15 ? 0 : -50; // shift only the label, tick stays anchored
+    return `<div class="mark ${m.cls}" data-days="${m.days}" style="left:${left}">`+
+           `<span class="tick"></span>`+
+           `<span class="lbl" style="transform:translateX(${lblShift}%)">`+
+           `${m.label}<br><b>${m.date.toLocaleDateString('en-GB',eopt)}</b></span>`+
+           `</div>`;
+  }).join('');
+}
+document.getElementById('marks').addEventListener('click', e=>{
+  const m = e.target.closest('.mark'); if(!m) return;
+  const s = document.getElementById('endSlider');
+  s.value = m.dataset.days;
+  calc();
+});
 
 function calc(){
   const w = windowParts();
@@ -307,6 +373,7 @@ function calc(){
     `up to <b>${end.toLocaleDateString('en-GB',eopt)}</b> — ${((end-now)/DAY).toFixed(0)} days`+
     (trimmed ? ` · trimmed from full patch end ${w.fullEnd.toLocaleDateString('en-GB',eopt)}`
              : ` · full patch`);
+  updateFill();
 }
 
 // ---- Settings modal wiring ----
